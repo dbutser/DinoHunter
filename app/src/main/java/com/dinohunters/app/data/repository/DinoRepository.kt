@@ -33,8 +33,8 @@ class DinoRepository @Inject constructor(
     // --- КОНСТАНТЫ ИГРЫ ---
     private val ZONE_RADIUS_METERS = 100.0
     private val MINIMUM_DISTANCE_BETWEEN_ZONES_METERS = 210.0
-    private val PLAYER_AURA_RADIUS_METERS = 1000.0
-    private val ZONES_TO_GENERATE_COUNT = 10
+    private val PLAYER_AURA_RADIUS_METERS = 1500.0
+    private val ZONES_TO_GENERATE_COUNT = 15
     private val MAX_GENERATION_ATTEMPTS = 500
 
     // --- ПУБЛИЧНЫЕ МЕТОДЫ ДЛЯ VIEWMODEL ---
