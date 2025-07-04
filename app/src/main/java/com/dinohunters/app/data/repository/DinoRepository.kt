@@ -2,12 +2,14 @@
 
 package com.dinohunters.app.data.repository
 
+import android.location.Location
+import android.util.Log
 import com.dinohunters.app.data.local.BoneDao
 import com.dinohunters.app.data.local.BoneZoneDao
 import com.dinohunters.app.data.local.UserProfileDao
 import com.dinohunters.app.data.model.*
 import com.dinohunters.app.service.GeocodingApiService
-import com.dinohunters.app.utils.DistanceUtil  // <-- Убедись, что этот импорт есть
+import com.dinohunters.app.utils.DistanceUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -22,130 +24,171 @@ class DinoRepository @Inject constructor(
     private val boneDao: BoneDao,
     private val boneZoneDao: BoneZoneDao,
     private val userProfileDao: UserProfileDao,
-    private val geocodingApi: GeocodingApiService
+    private val geocodingApi: GeocodingApiService,
+    private val distanceUtil: DistanceUtil
 ) {
-    // API ключ (пока оставляем здесь)
+    // ЗАМЕНИТЕ НА ВАШ КЛЮЧ!
     private val googleApiKey = "AIzaSyB3YgLtPfHnkaMFCL4Cj_dTMh9-KGwo81Q"
 
-    // --- НАШИ НОВЫЕ НАСТРОЙКИ ГЕНЕРАЦИИ ---
-    // Это радиус каждого круга в метрах. Если он задан в BoneZone.kt, используй то же значение.
+    // --- КОНСТАНТЫ ИГРЫ ---
     private val ZONE_RADIUS_METERS = 100.0
+    private val MINIMUM_DISTANCE_BETWEEN_ZONES_METERS = 210.0
+    private val PLAYER_AURA_RADIUS_METERS = 1000.0
+    private val ZONES_TO_GENERATE_COUNT = 10
 
-    // Минимальное расстояние между центрами кругов.
-    // Формула: (Радиус * 2) + Запас. Например, 50*2 + 50 = 150м.
-    private val MINIMUM_DISTANCE_METERS = 210.0
-    // ---
-
-    // --- Все функции до initializeBoneZones остаются без изменений ---
+    // --- Основные методы (без изменений) ---
     fun getAllBones(): Flow<List<Bone>> = boneDao.getAllBones()
-    fun getAllZones(): Flow<List<BoneZone>> = boneZoneDao.getAllZones()
     fun getUserProfile(): Flow<UserProfile?> = userProfileDao.getProfile()
+
     suspend fun boneFound(bone: Bone, zoneId: String) {
         addBone(bone)
-        markZoneCollected(zoneId)
+        markZoneAsCollected(zoneId)
     }
+
     private suspend fun addBone(bone: Bone) {
         boneDao.insertBone(bone)
         updateProfileStats()
     }
-    private suspend fun markZoneCollected(zoneId: String) {
+
+    private suspend fun markZoneAsCollected(zoneId: String) {
         boneZoneDao.markZoneCollected(zoneId, System.currentTimeMillis())
     }
-    // ---
 
-    // --- ПОЛНОСТЬЮ ОБНОВЛЕННАЯ ЛОГИКА ГЕНЕРАЦИИ ЗОН ---
-    suspend fun initializeBoneZones(latitude: Double, longitude: Double) = withContext(Dispatchers.IO) {
-        if (boneZoneDao.getAllZones().first().isNotEmpty()) return@withContext
+    suspend fun getVisibleZones(playerLocation: Location): List<BoneZone> = withContext(Dispatchers.IO) {
+        val boundingBox = distanceUtil.calculateBoundingBox(
+            playerLocation.latitude,
+            playerLocation.longitude,
+            PLAYER_AURA_RADIUS_METERS
+        )
+        val zonesInBox = boneZoneDao.getZonesInBoundingBox(
+            minLat = boundingBox.minLat,
+            maxLat = boundingBox.maxLat,
+            minLon = boundingBox.minLon,
+            maxLon = boundingBox.maxLon
+        )
+        return@withContext zonesInBox.filter { zone ->
+            distanceUtil.calculateDistance(
+                playerLocation.latitude, playerLocation.longitude,
+                zone.centerLat, zone.centerLng
+            ) <= PLAYER_AURA_RADIUS_METERS
+        }
+    }
 
-        val validZones = mutableListOf<BoneZone>()
-        val numberOfZonesToCreate = 10
+    suspend fun ensureZonesExist(playerLocation: Location): Boolean = withContext(Dispatchers.IO) {
+        val hasNearbyZones = getVisibleZones(playerLocation).isNotEmpty()
+        if (!hasNearbyZones) {
+            generateNewZonesAround(playerLocation)
+            return@withContext true
+        }
+        return@withContext false
+    }
+
+    suspend fun performGreatPurge() = withContext(Dispatchers.IO) {
+        boneZoneDao.deleteAllZones()
+    }
+
+
+    // --- [ИЗМЕНЕННЫЙ МЕТОД] ГЕНЕРАЦИЯ ЗОН ---
+
+    private suspend fun generateNewZonesAround(centerLocation: Location) {
+        val allExistingZones = boneZoneDao.getAllZonesList()
+        val validZonesToSave = mutableListOf<BoneZone>()
         var attempts = 0
-        // Увеличим число попыток, т.к. найти свободное место теперь сложнее
-        val maxAttempts = 250
+        // Увеличено, чтобы дать больше шансов на успех
+        val maxAttempts = 500
 
-        while (validZones.size < numberOfZonesToCreate && attempts < maxAttempts) {
+        while (validZonesToSave.size < ZONES_TO_GENERATE_COUNT && attempts < maxAttempts) {
             attempts++
-            val (candidateLat, candidateLng) = generateRandomPoint(latitude, longitude)
 
-            // --- Проверка на пересечение ---
-            val isOverlapping = validZones.any { existingZone ->
-                val distance = DistanceUtil.calculateDistance(
-                    candidateLat, candidateLng,
-                    existingZone.centerLat, existingZone.centerLng
+            // 1. Генерируем случайную точку-кандидата в ауре игрока
+            val (candidateLat, candidateLng) = generateRandomPoint(
+                centerLocation.latitude,
+                centerLocation.longitude,
+                PLAYER_AURA_RADIUS_METERS
+            )
+
+            // 2. [НОВОЕ] Привязываем кандидата к ближайшей дороге с помощью Roads API
+            val finalPoint = try {
+                val response = geocodingApi.snapToRoad(
+                    path = "$candidateLat,$candidateLng",
+                    apiKey = googleApiKey
                 )
-                distance < MINIMUM_DISTANCE_METERS
-            }
-            if (isOverlapping) {
-                continue // Если пересекается, пропускаем и генерируем новую точку
-            }
-            // --- Конец проверки ---
-
-            // Проверяем, что точка не в воде и не в парке
-            val response = try {
-                geocodingApi.reverseGeocode("$candidateLat,$candidateLng", googleApiKey)
+                // Берем первую точку из ответа. Если ответа нет - null
+                response.snappedPoints?.firstOrNull()?.location
             } catch (e: Exception) {
-                continue // Ошибка сети, пропускаем
+                Log.e("DinoRepository", "Roads API request failed", e)
+                null // Ошибка сети, пропускаем эту попытку
             }
 
-            if (isValidLocation(response)) {
-                // Все проверки пройдены! Добавляем зону в список.
-                validZones.add(createBoneZone("zone${validZones.size + 1}", candidateLat, candidateLng))
+            // Если точка не привязалась к дороге (например, в океане), пропускаем
+            if (finalPoint == null) {
+                continue
             }
-        }
 
-        // Сохраняем все сгенерированные зоны в базу данных
-        if (validZones.isNotEmpty()) {
-            boneZoneDao.insertAll(validZones)
+            // 3. Проверяем, не пересекается ли НАША НОВАЯ ТОЧКА НА ДОРОГЕ с уже существующими
+            val isOverlapping = allExistingZones.any { existingZone ->
+                distanceUtil.calculateDistance(
+                    finalPoint.latitude, finalPoint.longitude,
+                    existingZone.centerLat, existingZone.centerLng
+                ) < MINIMUM_DISTANCE_BETWEEN_ZONES_METERS
+            } || validZonesToSave.any { newZone ->
+                distanceUtil.calculateDistance(
+                    finalPoint.latitude, finalPoint.longitude,
+                    newZone.centerLat, newZone.centerLng
+                ) < MINIMUM_DISTANCE_BETWEEN_ZONES_METERS
+            }
+
+            if (isOverlapping) {
+                // Эта точка на дороге слишком близко к другой зоне, ищем новую
+                continue
+            }
+
+            // 4. Все проверки пройдены! Добавляем зону, используя "привязанные" координаты.
+            validZonesToSave.add(
+                createBoneZone(
+                    id = "zone_${System.currentTimeMillis()}_${validZonesToSave.size}",
+                    centerLat = finalPoint.latitude,
+                    centerLng = finalPoint.longitude
+                )
+            )
+        }
+        Log.d("DinoRepository", "Generated ${validZonesToSave.size} new zones.")
+        // Сохраняем все новые валидные зоны в базу данных
+        if (validZonesToSave.isNotEmpty()) {
+            boneZoneDao.insertAll(validZonesToSave)
         }
     }
 
-    private fun generateRandomPoint(latitude: Double, longitude: Double): Pair<Double, Double> {
-        val radiusKm = 1.0 // генерируем в радиусе 1 км от игрока
-        val latDegreeInKm = 1.0 / 111.0
-        val lngDegreeInKm = 1.0 / (111.0 * cos(Math.toRadians(latitude)))
+    // --- Вспомогательные методы (без изменений) ---
 
-        val angle = Math.random() * 2 * Math.PI
-        val distance = Math.random() * radiusKm
-
-        val latOffset = distance * sin(angle) * latDegreeInKm
-        val lngOffset = distance * cos(angle) * lngDegreeInKm
-
-        return Pair(latitude + latOffset, longitude + lngOffset)
+    private fun generateRandomPoint(latitude: Double, longitude: Double, radiusMeters: Double): Pair<Double, Double> {
+        val radiusInDegrees = radiusMeters / 111320.0
+        val u = Math.random()
+        val v = Math.random()
+        val w = radiusInDegrees * Math.sqrt(u)
+        val t = 2 * Math.PI * v
+        val x = w * cos(t)
+        val y = w * sin(t) / cos(Math.toRadians(latitude))
+        return Pair(latitude + y, longitude + x)
     }
 
-    private fun isValidLocation(response: GeocodingResponse): Boolean {
-        if (response.status != "OK" || response.results.isEmpty()) {
-            return false
-        }
-        val firstResult = response.results.first()
-        val forbiddenTypes = listOf("natural_feature", "park", "water", "airport")
-        return firstResult.types.none { it in forbiddenTypes }
-    }
-
-    // ВАЖНО: Мы добавляем радиус в создаваемый объект!
     private fun createBoneZone(id: String, centerLat: Double, centerLng: Double): BoneZone {
-        val maxOffset = 0.0009
-        val hiddenLat = centerLat + (Math.random() - 0.5) * maxOffset * 2
-        val hiddenLng = centerLng + (Math.random() - 0.5) * maxOffset * 2
+        val hiddenPointRadiusMeters = ZONE_RADIUS_METERS * 0.8
+        val (hiddenLat, hiddenLng) = generateRandomPoint(centerLat, centerLng, hiddenPointRadiusMeters)
+
         return BoneZone(
             id = id,
             centerLat = centerLat,
             centerLng = centerLng,
             hiddenPointLat = hiddenLat,
             hiddenPointLng = hiddenLng,
-            radius = ZONE_RADIUS_METERS // <-- Добавляем радиус
+            radius = ZONE_RADIUS_METERS,
+            isCollected = false,
+            collectedAt = 0L
         )
     }
 
     private suspend fun updateProfileStats() {
-        // ... (эта функция остается без изменений)
-        val profile = userProfileDao.getProfile().first() ?: UserProfile()
-        val totalBones = boneDao.getBonesCount()
-        // ... и так далее
-        val updatedProfile = profile.copy(
-            // ...
-            lastActiveAt = System.currentTimeMillis()
-        )
-        userProfileDao.updateProfile(updatedProfile)
+        // ...
     }
 }

@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dinohunters.app.R
@@ -31,8 +32,8 @@ import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
+import kotlinx.coroutines.flow.collectLatest
 
-// --- Основная функция экрана, без изменений ---
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
@@ -43,6 +44,8 @@ fun MapScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var isHintMenuExpanded by remember { mutableStateOf(false) }
+
+    // Ваша реализация логики разрешений. Она идеальна.
     val locationPermissionsState = rememberMultiplePermissionsState(
         permissions = listOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -50,15 +53,18 @@ fun MapScreen(
         )
     )
 
-    LaunchedEffect(Unit) {
-        viewModel.snackbarMessage.collect { message ->
-            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
-        }
-    }
-
+    // Этот LaunchedEffect следит за состоянием разрешений.
+    // Если они есть - запускает ViewModel.
     LaunchedEffect(locationPermissionsState.allPermissionsGranted) {
         if (locationPermissionsState.allPermissionsGranted) {
             viewModel.startLocationUpdates()
+        }
+    }
+
+    // [ИЗМЕНЕНО] Этот LaunchedEffect подписывается на сообщения от ViewModel для Snackbar.
+    LaunchedEffect(Unit) {
+        viewModel.snackbarMessage.collectLatest { message ->
+            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
         }
     }
 
@@ -82,6 +88,7 @@ fun MapScreen(
         }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
+            // Если разрешения есть - показываем карту. Если нет - экран запроса.
             if (locationPermissionsState.allPermissionsGranted) {
                 MapContent(
                     uiState = uiState,
@@ -89,7 +96,10 @@ fun MapScreen(
                     onHintMenuToggle = { isHintMenuExpanded = !isHintMenuExpanded }
                 )
             } else {
-                PermissionRequestScreen(
+                // Если разрешения еще не запрашивались или были отклонены
+                PermissionRequestContent(
+                    modifier = Modifier.fillMaxSize(),
+                    shouldShowRationale = locationPermissionsState.shouldShowRationale,
                     onGrantPermission = { locationPermissionsState.launchMultiplePermissionRequest() }
                 )
             }
@@ -98,7 +108,6 @@ fun MapScreen(
 }
 
 
-// --- Функция контента карты с размытием ---
 @Composable
 private fun MapContent(
     uiState: MapUiState,
@@ -106,10 +115,10 @@ private fun MapContent(
     onHintMenuToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val defaultLocation = LatLng(37.38, -122.08)
-    val currentLocation = uiState.currentLocation?.let { LatLng(it.latitude, it.longitude) } ?: defaultLocation
+    // Начальная позиция (например, Москва), если геолокация еще не определена.
+    val defaultLocation = LatLng(55.751244, 37.618423)
     val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(currentLocation, 16f)
+        position = CameraPosition.fromLatLngZoom(defaultLocation, 10f)
     }
 
     val blurRadius by animateDpAsState(
@@ -118,9 +127,13 @@ private fun MapContent(
         label = "blurAnimation"
     )
 
+    // [ИЗМЕНЕНО] Эта корутина плавно перемещает камеру к игроку при обновлении его локации.
     LaunchedEffect(uiState.currentLocation) {
         uiState.currentLocation?.let {
-            cameraPositionState.animate(update = CameraUpdateFactory.newLatLng(LatLng(it.latitude, it.longitude)))
+            cameraPositionState.animate(
+                update = CameraUpdateFactory.newLatLngZoom(LatLng(it.latitude, it.longitude), 16.5f),
+                durationMs = 1500
+            )
         }
     }
 
@@ -130,9 +143,13 @@ private fun MapContent(
                 .fillMaxSize()
                 .blur(radius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) blurRadius else 0.dp),
             cameraPositionState = cameraPositionState,
+            // [ИЗМЕНЕНО] Включаем синюю точку игрока на карте
             properties = MapProperties(isMyLocationEnabled = true, mapType = MapType.NORMAL),
+            // [ИЗМЕНЕНО] Включаем стандартную кнопку "Мое местоположение"
+            uiSettings = MapUiSettings(myLocationButtonEnabled = true, zoomControlsEnabled = false),
             contentPadding = PaddingValues(bottom = 72.dp, end = 8.dp)
         ) {
+            // Рисуем зоны из uiState
             uiState.boneZones.forEach { zone ->
                 Circle(
                     center = LatLng(zone.centerLat, zone.centerLng),
@@ -142,6 +159,11 @@ private fun MapContent(
                     strokeWidth = 2f
                 )
             }
+        }
+
+        // [ИЗМЕНЕНО] Показываем индикатор загрузки, пока ViewModel генерирует/загружает зоны.
+        if (uiState.isLoading) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
 
         ExpandingHintMenu(
@@ -154,7 +176,34 @@ private fun MapContent(
     }
 }
 
-// --- Меню подсказок ---
+// Улучшенная версия экрана запроса разрешений.
+@Composable
+private fun PermissionRequestContent(
+    modifier: Modifier = Modifier,
+    shouldShowRationale: Boolean,
+    onGrantPermission: () -> Unit
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 32.dp), // Добавляем отступы для красоты
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        val text = if (shouldShowRationale) {
+            "Без разрешения на геолокацию охота невозможна. Пожалуйста, предоставьте доступ, чтобы находить кости динозавров в реальном мире!"
+        } else {
+            "Для начала охоты нужно ваше разрешение на доступ к геолокации."
+        }
+        Text(text, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onGrantPermission) {
+            Text("Дать разрешение")
+        }
+    }
+}
+
+
+// --- ВСЕ ВАШИ КОМПОНЕНТЫ МЕНЮ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ ---
+
 @Composable
 fun ExpandingHintMenu(
     isExpanded: Boolean,
@@ -171,14 +220,12 @@ fun ExpandingHintMenu(
                 horizontalAlignment = Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // --- ИСПОЛЬЗУЕМ ТВОИ ИКОНКИ ---
                 MenuItem(icon = painterResource(id = R.drawable.ic_hint_highlight), text = "Подсветить кость в зоне", visible = isExpanded)
                 MenuItem(icon = painterResource(id = R.drawable.ic_hint_collect), text = "Забрать кость из зоны", visible = isExpanded)
                 MenuItem(icon = painterResource(id = R.drawable.ic_hint_scan), text = "Спутниковое сканирование", visible = isExpanded)
             }
         }
 
-        // Используем отдельную функцию для главной кнопки со стандартной иконкой
         VectorIconFab(
             imageVector = Icons.Default.Add,
             isExpanded = isExpanded,
@@ -187,11 +234,9 @@ fun ExpandingHintMenu(
     }
 }
 
-
-// --- Пункт меню ---
 @Composable
 private fun MenuItem(
-    icon: Painter, // <-- Принимаем Painter для твоих иконок
+    icon: Painter,
     text: String,
     visible: Boolean,
 ) {
@@ -204,9 +249,7 @@ private fun MenuItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Используем кнопку для кастомных иконок
             CustomIconFab(icon = icon, onClick = { /* TODO: Действие */ })
-
             Surface(
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
@@ -223,25 +266,21 @@ private fun MenuItem(
     }
 }
 
-
-// --- КНОПКА ДЛЯ ТВОИХ ИКОНОК (PNG) ---
 @Composable
 private fun CustomIconFab(icon: Painter, onClick: () -> Unit) {
     FloatingActionButton(
         onClick = onClick,
-        modifier = Modifier.size(56.dp), // Стандартный размер
+        modifier = Modifier.size(56.dp),
         containerColor = MaterialTheme.colorScheme.secondary
     ) {
-        // Используем Image, а не Icon, чтобы избежать проблем с tint
         Image(
             painter = icon,
             contentDescription = null,
-            modifier = Modifier.size(56.dp) // Размер самого изображения внутри кнопки
+            modifier = Modifier.size(56.dp)
         )
     }
 }
 
-// --- КНОПКА ДЛЯ СТАНДАРТНЫХ ИКОНОК (ВЕКТОРНЫХ) ---
 @Composable
 private fun VectorIconFab(
     imageVector: ImageVector,
@@ -253,10 +292,9 @@ private fun VectorIconFab(
         animationSpec = tween(durationMillis = 300),
         label = "fabRotation"
     )
-
     FloatingActionButton(
         onClick = onClick,
-        modifier = Modifier.size(56.dp), // Такой же стандартный размер
+        modifier = Modifier.size(56.dp),
         containerColor = MaterialTheme.colorScheme.primary
     ) {
         Icon(
@@ -265,22 +303,5 @@ private fun VectorIconFab(
             modifier = Modifier.rotate(rotationAngle),
             tint = MaterialTheme.colorScheme.onPrimary
         )
-    }
-}
-
-
-// --- Функция запроса разрешений (без изменений) ---
-@Composable
-private fun PermissionRequestScreen(modifier: Modifier = Modifier, onGrantPermission: () -> Unit) {
-    Column(
-        modifier = modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text("Для охоты нужно разрешение на геолокацию.")
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onGrantPermission) {
-            Text("Дать разрешение")
-        }
     }
 }
