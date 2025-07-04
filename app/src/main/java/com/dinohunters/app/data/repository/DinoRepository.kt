@@ -28,7 +28,7 @@ class DinoRepository @Inject constructor(
     private val distanceUtil: DistanceUtil
 ) {
     // ЗАМЕНИТЕ НА ВАШ КЛЮЧ!
-    private val googleApiKey = "YOUR_GOOGLE_API_KEY_HERE"
+    private val googleApiKey = "AIzaSyB3YgLtPfHnkaMFCL4Cj_dTMh9-KGwo81Q"
 
     // --- КОНСТАНТЫ ИГРЫ ---
     private val ZONE_RADIUS_METERS = 100.0
