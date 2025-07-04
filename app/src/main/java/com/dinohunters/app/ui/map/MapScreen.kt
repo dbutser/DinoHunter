@@ -25,6 +25,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dinohunters.app.R
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
@@ -41,11 +42,11 @@ fun MapScreen(
     onNavigateToProfile: () -> Unit,
     viewModel: MapViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    // [ИЗМЕНЕНО] Используем collectAsStateWithLifecycle для большей надежности
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var isHintMenuExpanded by remember { mutableStateOf(false) }
 
-    // Ваша реализация логики разрешений. Она идеальна.
     val locationPermissionsState = rememberMultiplePermissionsState(
         permissions = listOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -53,15 +54,13 @@ fun MapScreen(
         )
     )
 
-    // Этот LaunchedEffect следит за состоянием разрешений.
-    // Если они есть - запускает ViewModel.
+    // [ИЗМЕНЕНО] Этот LaunchedEffect теперь вызывает новый метод viewModel.initializeMapData()
     LaunchedEffect(locationPermissionsState.allPermissionsGranted) {
         if (locationPermissionsState.allPermissionsGranted) {
-            viewModel.startLocationUpdates()
+            viewModel.initializeMapData() // <-- ВЫЗЫВАЕМ НОВЫЙ МЕТОД
         }
     }
 
-    // [ИЗМЕНЕНО] Этот LaunchedEffect подписывается на сообщения от ViewModel для Snackbar.
     LaunchedEffect(Unit) {
         viewModel.snackbarMessage.collectLatest { message ->
             snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
@@ -88,7 +87,6 @@ fun MapScreen(
         }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
-            // Если разрешения есть - показываем карту. Если нет - экран запроса.
             if (locationPermissionsState.allPermissionsGranted) {
                 MapContent(
                     uiState = uiState,
@@ -96,7 +94,6 @@ fun MapScreen(
                     onHintMenuToggle = { isHintMenuExpanded = !isHintMenuExpanded }
                 )
             } else {
-                // Если разрешения еще не запрашивались или были отклонены
                 PermissionRequestContent(
                     modifier = Modifier.fillMaxSize(),
                     shouldShowRationale = locationPermissionsState.shouldShowRationale,
@@ -107,7 +104,6 @@ fun MapScreen(
     }
 }
 
-
 @Composable
 private fun MapContent(
     uiState: MapUiState,
@@ -115,10 +111,10 @@ private fun MapContent(
     onHintMenuToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Начальная позиция (например, Москва), если геолокация еще не определена.
-    val defaultLocation = LatLng(55.751244, 37.618423)
+    // [ИЗМЕНЕНО] Начальная позиция теперь нейтральная, с широким зумом.
+    // Пользователь ее, скорее всего, даже не увидит, так как lastKnownLocation загрузится быстрее.
     val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(defaultLocation, 10f)
+        position = CameraPosition.fromLatLngZoom(LatLng(20.0, 0.0), 2f)
     }
 
     val blurRadius by animateDpAsState(
@@ -127,7 +123,8 @@ private fun MapContent(
         label = "blurAnimation"
     )
 
-    // [ИЗМЕНЕНО] Эта корутина плавно перемещает камеру к игроку при обновлении его локации.
+    // Этот код остается без изменений. Он отлично справится с новой логикой,
+    // плавно перемещая камеру на lastKnownLocation, а затем на точные координаты.
     LaunchedEffect(uiState.currentLocation) {
         uiState.currentLocation?.let {
             cameraPositionState.animate(
@@ -137,19 +134,17 @@ private fun MapContent(
         }
     }
 
+    // ... остальной код MapContent, GoogleMap и меню остаются без изменений ...
     Box(modifier = modifier.fillMaxSize()) {
         GoogleMap(
             modifier = Modifier
                 .fillMaxSize()
                 .blur(radius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) blurRadius else 0.dp),
             cameraPositionState = cameraPositionState,
-            // [ИЗМЕНЕНО] Включаем синюю точку игрока на карте
             properties = MapProperties(isMyLocationEnabled = true, mapType = MapType.NORMAL),
-            // [ИЗМЕНЕНО] Включаем стандартную кнопку "Мое местоположение"
             uiSettings = MapUiSettings(myLocationButtonEnabled = true, zoomControlsEnabled = false),
             contentPadding = PaddingValues(bottom = 72.dp, end = 8.dp)
         ) {
-            // Рисуем зоны из uiState
             uiState.boneZones.forEach { zone ->
                 Circle(
                     center = LatLng(zone.centerLat, zone.centerLng),
@@ -161,7 +156,6 @@ private fun MapContent(
             }
         }
 
-        // [ИЗМЕНЕНО] Показываем индикатор загрузки, пока ViewModel генерирует/загружает зоны.
         if (uiState.isLoading) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
@@ -176,7 +170,7 @@ private fun MapContent(
     }
 }
 
-// Улучшенная версия экрана запроса разрешений.
+// ... PermissionRequestContent и все функции меню остаются без изменений ...
 @Composable
 private fun PermissionRequestContent(
     modifier: Modifier = Modifier,
@@ -184,7 +178,7 @@ private fun PermissionRequestContent(
     onGrantPermission: () -> Unit
 ) {
     Column(
-        modifier = modifier.padding(horizontal = 32.dp), // Добавляем отступы для красоты
+        modifier = modifier.padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -201,66 +195,27 @@ private fun PermissionRequestContent(
     }
 }
 
-
-// --- ВСЕ ВАШИ КОМПОНЕНТЫ МЕНЮ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ ---
-
 @Composable
-fun ExpandingHintMenu(
-    isExpanded: Boolean,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
+fun ExpandingHintMenu(isExpanded: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         AnimatedVisibility(visible = isExpanded) {
-            Column(
-                horizontalAlignment = Alignment.Start,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            Column(horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 MenuItem(icon = painterResource(id = R.drawable.ic_hint_highlight), text = "Подсветить кость в зоне", visible = isExpanded)
                 MenuItem(icon = painterResource(id = R.drawable.ic_hint_collect), text = "Забрать кость из зоны", visible = isExpanded)
                 MenuItem(icon = painterResource(id = R.drawable.ic_hint_scan), text = "Спутниковое сканирование", visible = isExpanded)
             }
         }
-
-        VectorIconFab(
-            imageVector = Icons.Default.Add,
-            isExpanded = isExpanded,
-            onClick = onToggle
-        )
+        VectorIconFab(imageVector = Icons.Default.Add, isExpanded = isExpanded, onClick = onToggle)
     }
 }
 
 @Composable
-private fun MenuItem(
-    icon: Painter,
-    text: String,
-    visible: Boolean,
-) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn() + slideInHorizontally(),
-        exit = fadeOut() + slideOutHorizontally()
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+private fun MenuItem(icon: Painter, text: String, visible: Boolean) {
+    AnimatedVisibility(visible = visible, enter = fadeIn() + slideInHorizontally(), exit = fadeOut() + slideOutHorizontally()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             CustomIconFab(icon = icon, onClick = { /* TODO: Действие */ })
-            Surface(
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                tonalElevation = 4.dp
-            ) {
-                Text(
-                    text = text,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), tonalElevation = 4.dp) {
+                Text(text = text, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
             }
         }
     }
@@ -268,40 +223,15 @@ private fun MenuItem(
 
 @Composable
 private fun CustomIconFab(icon: Painter, onClick: () -> Unit) {
-    FloatingActionButton(
-        onClick = onClick,
-        modifier = Modifier.size(56.dp),
-        containerColor = MaterialTheme.colorScheme.secondary
-    ) {
-        Image(
-            painter = icon,
-            contentDescription = null,
-            modifier = Modifier.size(56.dp)
-        )
+    FloatingActionButton(onClick = onClick, modifier = Modifier.size(56.dp), containerColor = MaterialTheme.colorScheme.secondary) {
+        Image(painter = icon, contentDescription = null, modifier = Modifier.size(56.dp))
     }
 }
 
 @Composable
-private fun VectorIconFab(
-    imageVector: ImageVector,
-    isExpanded: Boolean,
-    onClick: () -> Unit
-) {
-    val rotationAngle by animateFloatAsState(
-        targetValue = if (isExpanded) 45f else 0f,
-        animationSpec = tween(durationMillis = 300),
-        label = "fabRotation"
-    )
-    FloatingActionButton(
-        onClick = onClick,
-        modifier = Modifier.size(56.dp),
-        containerColor = MaterialTheme.colorScheme.primary
-    ) {
-        Icon(
-            imageVector = imageVector,
-            contentDescription = "Меню",
-            modifier = Modifier.rotate(rotationAngle),
-            tint = MaterialTheme.colorScheme.onPrimary
-        )
+private fun VectorIconFab(imageVector: ImageVector, isExpanded: Boolean, onClick: () -> Unit) {
+    val rotationAngle by animateFloatAsState(targetValue = if (isExpanded) 45f else 0f, animationSpec = tween(durationMillis = 300), label = "fabRotation")
+    FloatingActionButton(onClick = onClick, modifier = Modifier.size(56.dp), containerColor = MaterialTheme.colorScheme.primary) {
+        Icon(imageVector = imageVector, contentDescription = "Меню", modifier = Modifier.rotate(rotationAngle), tint = MaterialTheme.colorScheme.onPrimary)
     }
 }
