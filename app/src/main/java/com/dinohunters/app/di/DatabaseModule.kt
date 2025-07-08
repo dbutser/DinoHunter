@@ -24,7 +24,9 @@ object DatabaseModule {
             context,
             DinoDatabase::class.java,
             "dino_database"
-        ).build()
+        )
+            .fallbackToDestructiveMigration()  // сбрасывает БД при смене версии
+            .build()
     }
 
     @Provides
