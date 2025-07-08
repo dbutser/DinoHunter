@@ -72,7 +72,16 @@ fun MapScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Охотник за динозаврами") },
+                title = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Охотник за динозаврами")
+                        DinoCoinIndicator(uiState.dinoCoins)
+                    }
+                },
                 actions = {
                     IconButton(onClick = onNavigateToProfile) {
                         Icon(imageVector = Icons.Default.Person, contentDescription = "Профиль")
@@ -305,3 +314,14 @@ private fun VectorIconFab(
         )
     }
 }
+
+@Composable
+fun DinoCoinIndicator(coins: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = Icons.Default.AttachMoney,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.secondary
+        )
+        Text(coins.toString(), style = MaterialTheme.typography.bodyMedium)
+    }}

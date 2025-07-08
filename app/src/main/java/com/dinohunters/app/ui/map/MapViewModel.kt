@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.dinohunters.app.data.model.BoneZone
 import com.dinohunters.app.data.repository.DinoRepository
 import com.dinohunters.app.service.LocationService
+import com.dinohunters.app.data.repository.DinoCoinRepository
 import com.dinohunters.app.utils.BoneGenerator // Предполагается, что это object или класс с DI
 import com.dinohunters.app.utils.DistanceUtil // Убедитесь, что этот util внедряется через DI
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -20,8 +21,17 @@ import javax.inject.Inject
 class MapViewModel @Inject constructor(
     private val repository: DinoRepository,
     private val locationService: LocationService,
-    private val distanceUtil: DistanceUtil // Внедряем DistanceUtil для расчетов
+    private val distanceUtil: DistanceUtil, // Внедряем DistanceUtil для расчетов
+    private val coinRepository: DinoCoinRepository
 ) : ViewModel() {
+
+    init {
+        viewModelScope.launch {
+            coinRepository.coinBalance.collect { balance ->
+                _uiState.update { it.copy(dinoCoins = balance) }
+            }
+        }
+    }
 
     private val _uiState = MutableStateFlow(MapUiState())
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
@@ -121,5 +131,5 @@ class MapViewModel @Inject constructor(
 data class MapUiState(
     val currentLocation: Location? = null,
     val boneZones: List<BoneZone> = emptyList(), // Теперь здесь только видимые зоны
-    val isLoading: Boolean = true // Начинаем с состояния загрузки
-)
+    val isLoading: Boolean = true, // Начинаем с состояния загрузки
+    val dinoCoins: Int = 0)
