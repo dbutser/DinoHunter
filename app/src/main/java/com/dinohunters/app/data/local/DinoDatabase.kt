@@ -9,7 +9,7 @@ import com.dinohunters.app.data.model.UserProfile
 
 @Database(
     entities = [Bone::class, BoneZone::class, UserProfile::class],
-    version = 1,
+    version = 2, // <--- ВЕРСИЯ ОБНОВЛЕНА
     exportSchema = false
 )
 @TypeConverters(Converters::class)

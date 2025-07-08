@@ -5,7 +5,7 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "user_profile")
 data class UserProfile(
-    @PrimaryKey val id: String = "default",
+    @PrimaryKey val id: Int = 1, // Используем Int для единственного профиля
     val nickname: String = "Охотник",
     val totalBones: Int = 0,
     val commonBones: Int = 0,
@@ -15,5 +15,9 @@ data class UserProfile(
     val legendaryBones: Int = 0,
     val sessionBones: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
-    val lastActiveAt: Long = System.currentTimeMillis()
+    val lastActiveAt: Long = System.currentTimeMillis(),
+
+    // --- ДОБАВЛЕННЫЕ ПОЛЯ ---
+    val dinocoinBalance: Long = 0,
+    val lastSyncedSteps: Long = 0
 )
