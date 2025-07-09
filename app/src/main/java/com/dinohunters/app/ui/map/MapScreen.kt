@@ -91,7 +91,7 @@ fun MapScreen(
                     Icon(
                         imageVector = Icons.Default.PersonalInjury,
                         contentDescription = "Профиль",
-                        tint = Color.White // Цвет иконки. Настройте для контраста с вашим рисунком.
+                        tint = Color.Black // Цвет иконки. Настройте для контраста с вашим рисунком.
                         // Можно использовать MaterialTheme.colorScheme.onPrimary, если подходит
                     )
                 }
