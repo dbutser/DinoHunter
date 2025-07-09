@@ -93,10 +93,17 @@ class DinoRepository @Inject constructor(
     // --- ОСТАЛЬНЫЕ ПУБЛИЧНЫЕ МЕТОДЫ ---
     fun getAllBones(): Flow<List<Bone>> = boneDao.getAllBones()
 
+    // ДОБАВИЛ ЭТУ ФУНКЦИЮ: addBone
+    // Теперь она публичная, чтобы InventoryViewModel мог ее вызывать.
+    suspend fun addBone(bone: Bone) { // <-- УДАЛИЛ "private" ЗДЕСЬ
+        boneDao.insertBone(bone)
+        updateProfileStats()
+    }
+
     fun getUserProfile(): Flow<UserProfile?> = userProfileDao.getProfile()
 
     suspend fun boneFound(bone: Bone, zoneId: String) {
-        addBone(bone)
+        addBone(bone) // Теперь эта строка будет работать
         markZoneAsCollected(zoneId)
     }
 
@@ -132,11 +139,17 @@ class DinoRepository @Inject constructor(
         boneZoneDao.deleteAllZones()
     }
 
-    // --- ПРИВАТНЫЕ МЕТОДЫ РЕПОЗИТОРИЯ ---
-    private suspend fun addBone(bone: Bone) {
-        boneDao.insertBone(bone)
-        updateProfileStats()
-    }
+    // --- ПРИВАТНЫЕ МЕТОДЫ РЕПОЗИТОРИЯ (Остальные, которые должны быть приватными) ---
+    // Этот метод был частью изначального "private suspend fun addBone",
+    // но теперь BoneGenerator может вызывать публичную addBone выше.
+    // Если вам нужна функция для удаления одной кости из группы (это сложнее)
+    // suspend fun removeOneBone(boneKey: BoneKey) { ... }
+    // Удаляем избыточную приватную версию addBone, чтобы не было дублирования
+    // (поскольку публичная addBone теперь делает то же самое).
+    // Если же вам нужно, чтобы публичная addBone вызывала приватную, то
+    // приватная должна быть переименована, например, в internalAddBone(bone: Bone)
+    // и вызываться из публичной. Но в данном случае, она просто должна быть публичной.
+
 
     private suspend fun markZoneAsCollected(zoneId: String) {
         boneZoneDao.markZoneCollected(zoneId, System.currentTimeMillis())
