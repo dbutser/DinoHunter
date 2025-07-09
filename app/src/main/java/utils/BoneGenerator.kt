@@ -109,7 +109,7 @@ object BoneGenerator {
             name = boneName,
             type = boneType,
             rarity = boneRarity,
-            imageUrl = "https://sdmntprpolandcentral.oaiusercontent.com/files/00000000-5964-620a-8258-440c141b17e9/raw?se=2025-07-09T11%3A28%3A25Z&sp=r&sv=2024-08-04&sr=b&scid=8e12b8ab-dbaa-5d7f-9017-e40a7e36f083&skoid=f28c0102-4d9d-4950-baf0-4a8e5f6cf9d4&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2025-07-08T20%3A49%3A59Z&ske=2025-07-09T20%3A49%3A59Z&sks=b&skv=2024-08-04&sig=mmAOaj1xY0KRIK1Xen62KFWb9%2BIXHnLiGP9rZBu1kRo%3D",
+            imageUrl = "https://i.imgur.com/xwweStJ.png",
             description = "Древняя кость динозавра, найденная в ходе исследований. Это ${boneName} - ${rarityDescription} находка!"
         )
     }

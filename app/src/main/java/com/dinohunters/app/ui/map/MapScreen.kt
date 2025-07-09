@@ -1,5 +1,3 @@
-// Путь: app/src/main/java/com/dinohunters/app/ui/map/MapScreen.kt
-
 package com.dinohunters.app.ui.map
 
 import android.Manifest
@@ -9,6 +7,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background // <-- Добавлен импорт для .background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -21,6 +20,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale // <-- Добавлен импорт
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -42,7 +42,6 @@ fun MapScreen(
     onNavigateToProfile: () -> Unit,
     viewModel: MapViewModel = hiltViewModel()
 ) {
-    // [ИЗМЕНЕНО] Используем collectAsStateWithLifecycle для большей надежности
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var isHintMenuExpanded by remember { mutableStateOf(false) }
@@ -54,10 +53,9 @@ fun MapScreen(
         )
     )
 
-    // [ИЗМЕНЕНО] Этот LaunchedEffect теперь вызывает новый метод viewModel.initializeMapData()
     LaunchedEffect(locationPermissionsState.allPermissionsGranted) {
         if (locationPermissionsState.allPermissionsGranted) {
-            viewModel.initializeMapData() // <-- ВЫЗЫВАЕМ НОВЫЙ МЕТОД
+            viewModel.initializeMapData()
         }
     }
 
@@ -70,19 +68,48 @@ fun MapScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = { Text("Охотник за динозаврами") },
-                actions = {
-                    IconButton(onClick = onNavigateToProfile) {
-                        Icon(imageVector = Icons.Default.Person, contentDescription = "Профиль")
-                    }
+            // --- НАЧАЛО ИЗМЕНЕНИЙ В TOP BAR ---
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp) // Стандартная высота TopAppBar, можете изменить
+                    .background(MaterialTheme.colorScheme.primary) // Цвет фона, если изображение не покрывает всю область
+            ) {
+                // ВАШ РИСУНОК
+                Image(
+                    painter = painterResource(id = R.drawable.top_bar_background), // <-- ЗАМЕНИТЕ 'top_bar_background' НА ИМЯ ВАШЕГО ФАЙЛА РИСУНКА
+                    contentDescription = "Фон верхней плашки", // Описание для доступности
+                    modifier = Modifier.fillMaxSize(), // Рисунок заполняет всю Box
+                    contentScale = ContentScale.Crop // Масштабирование: Crop (обрезает, но заполняет), Fit (помещает полностью), FillBounds (растягивает)
+                )
+
+                // Иконка профиля справа
+                IconButton(
+                    onClick = onNavigateToProfile,
+                    modifier = Modifier.align(Alignment.CenterEnd) // Выравнивание иконки справа по центру
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PersonalInjury,
+                        contentDescription = "Профиль",
+                        tint = Color.White // Цвет иконки. Настройте для контраста с вашим рисунком.
+                        // Можно использовать MaterialTheme.colorScheme.onPrimary, если подходит
+                    )
                 }
-            )
+
+                // Дополнительно: если вы хотите добавить текст, выровненный по центру, поверх рисунка:
+                // Text(
+                //     text = "Охотник за динозаврами",
+                //     style = MaterialTheme.typography.titleLarge, // Выберите подходящий стиль типографики
+                //     color = Color.White, // Цвет текста
+                //     modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp) // Выравнивание текста
+                // )
+            }
+            // --- КОНЕЦ ИЗМЕНЕНИЙ В TOP BAR ---
         },
         floatingActionButtonPosition = FabPosition.End,
         floatingActionButton = {
             FloatingActionButton(onClick = onNavigateToInventory) {
-                Icon(imageVector = Icons.Default.Backpack, contentDescription = "Инвентарь")
+                Icon(imageVector = Icons.Default.Collections, contentDescription = "Инвентарь")
             }
         }
     ) { innerPadding ->
@@ -111,8 +138,6 @@ private fun MapContent(
     onHintMenuToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // [ИЗМЕНЕНО] Начальная позиция теперь нейтральная, с широким зумом.
-    // Пользователь ее, скорее всего, даже не увидит, так как lastKnownLocation загрузится быстрее.
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(LatLng(20.0, 0.0), 2f)
     }
@@ -123,8 +148,6 @@ private fun MapContent(
         label = "blurAnimation"
     )
 
-    // Этот код остается без изменений. Он отлично справится с новой логикой,
-    // плавно перемещая камеру на lastKnownLocation, а затем на точные координаты.
     LaunchedEffect(uiState.currentLocation) {
         uiState.currentLocation?.let {
             cameraPositionState.animate(
@@ -134,7 +157,6 @@ private fun MapContent(
         }
     }
 
-    // ... остальной код MapContent, GoogleMap и меню остаются без изменений ...
     Box(modifier = modifier.fillMaxSize()) {
         GoogleMap(
             modifier = Modifier
@@ -170,7 +192,6 @@ private fun MapContent(
     }
 }
 
-// ... PermissionRequestContent и все функции меню остаются без изменений ...
 @Composable
 private fun PermissionRequestContent(
     modifier: Modifier = Modifier,
