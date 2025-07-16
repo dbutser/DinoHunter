@@ -7,11 +7,20 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- НОВОЕ РАЗРЕШЕНИЕ ДЛЯ ОПРЕДЕЛЕНИЯ ШАГОВ / АКТИВНОСТИ -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
     <!-- Требования к устройству (не обязательно, но хорошая практика) -->
     <uses-feature
         android:name="android.hardware.location.gps"
         android:required="true" />
+    <!-- ЕСЛИ ВАМ НУЖЕН СТРОГО СЧЕТЧИК ШАГОВ, МОЖНО ДОБАВИТЬ ЭТО (но не всегда обязательно) -->
+    <uses-feature
+        android:name="android.hardware.sensor.stepcounter"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.sensor.accelerometer"
+        android:required="false" />
 
     <application
         android:name=".DinoHunterApplication"
