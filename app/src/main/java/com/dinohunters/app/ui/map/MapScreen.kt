@@ -6,6 +6,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -107,8 +108,8 @@ fun MapScreen(
                     isHintMenuExpanded = isHintMenuExpanded,
                     onHintMenuToggle = { isHintMenuExpanded = !isHintMenuExpanded },
                     onHighlightHintClick = { viewModel.onHighlightHintClicked() },
-                    // [НОВЫЙ КОД] Передаем вызов для второй подсказки
-                    onRemoteCollectHintClick = { viewModel.onRemoteCollectHintClicked() }
+                    onRemoteCollectHintClick = { viewModel.onRemoteCollectHintClicked() },
+                    onSatelliteScanHintClick = { viewModel.onSatelliteScanHintClicked() }
                 )
             } else {
                 PermissionRequestContent(
@@ -127,7 +128,8 @@ private fun MapContent(
     isHintMenuExpanded: Boolean,
     onHintMenuToggle: () -> Unit,
     onHighlightHintClick: () -> Unit,
-    onRemoteCollectHintClick: () -> Unit, // [НОВЫЙ КОД] Принимаем лямбду
+    onRemoteCollectHintClick: () -> Unit,
+    onSatelliteScanHintClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val cameraPositionState = rememberCameraPositionState {
@@ -151,6 +153,10 @@ private fun MapContent(
         }
     }
 
+    // [НОВОЕ] Порог видимости для текста и текущий уровень зума
+    val TEXT_VISIBILITY_ZOOM_LEVEL = 16.0f
+    val currentZoom = cameraPositionState.position.zoom
+
     Box(modifier = modifier.fillMaxSize()) {
         GoogleMap(
             modifier = Modifier
@@ -169,6 +175,38 @@ private fun MapContent(
                     strokeColor = if (zone.isCollected) Color.Gray else Color.Green,
                     strokeWidth = 2f
                 )
+
+                // [ИЗМЕНЕНО] Условное отображение в зависимости от зума
+                uiState.satelliteScanResults[zone.id]?.let { bone ->
+                    if (currentZoom >= TEXT_VISIBILITY_ZOOM_LEVEL) {
+                        // Показываем текст при сильном приближении
+                        MarkerComposable(
+                            keys = arrayOf(zone.id),
+                            state = rememberMarkerState(position = LatLng(zone.centerLat, zone.centerLng)),
+                        ) {
+                            Surface(
+                                shape = MaterialTheme.shapes.medium,
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                                shadowElevation = 4.dp,
+                                border = BorderStroke(1.dp, Color.LightGray)
+                            ) {
+                                Text(
+                                    text = bone.name,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    } else {
+                        // Показываем синий маркер при отдалении
+                        Marker(
+                            state = MarkerState(position = LatLng(zone.centerLat, zone.centerLng)),
+                            icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE),
+                            title = "Неопознанная кость" // Название для стандартного InfoWindow по клику
+                        )
+                    }
+                }
             }
 
             val highlightedZone = uiState.boneZones.find { it.id == uiState.highlightedZoneId }
@@ -189,7 +227,8 @@ private fun MapContent(
             isExpanded = isHintMenuExpanded,
             onToggle = onHintMenuToggle,
             onHighlightHintClick = onHighlightHintClick,
-            onRemoteCollectHintClick = onRemoteCollectHintClick, // [НОВЫЙ КОД] Передаем лямбду в меню
+            onRemoteCollectHintClick = onRemoteCollectHintClick,
+            onSatelliteScanHintClick = onSatelliteScanHintClick,
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(16.dp)
@@ -226,7 +265,8 @@ fun ExpandingHintMenu(
     isExpanded: Boolean,
     onToggle: () -> Unit,
     onHighlightHintClick: () -> Unit,
-    onRemoteCollectHintClick: () -> Unit, // [НОВЫЙ КОД] Принимаем лямбду
+    onRemoteCollectHintClick: () -> Unit,
+    onSatelliteScanHintClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -238,7 +278,6 @@ fun ExpandingHintMenu(
                     visible = isExpanded,
                     onClick = onHighlightHintClick
                 )
-                // --- [ИЗМЕНЕНИЕ] Подключаем новую функцию и меняем текст ---
                 MenuItem(
                     icon = painterResource(id = R.drawable.ic_hint_collect),
                     text = "Удаленный сбор (2500)",
@@ -247,9 +286,9 @@ fun ExpandingHintMenu(
                 )
                 MenuItem(
                     icon = painterResource(id = R.drawable.ic_hint_scan),
-                    text = "Спутниковое сканирование",
+                    text = "Сканирование зон (1000)",
                     visible = isExpanded,
-                    onClick = { /* TODO: Логика для третьей подсказки */ }
+                    onClick = onSatelliteScanHintClick
                 )
             }
         }

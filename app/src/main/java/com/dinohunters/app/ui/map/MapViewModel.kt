@@ -3,6 +3,7 @@ package com.dinohunters.app.ui.map
 import android.location.Location
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.dinohunters.app.data.model.Bone
 import com.dinohunters.app.data.model.BoneZone
 import com.dinohunters.app.data.repository.DinoRepository
 import com.dinohunters.app.service.LocationService
@@ -18,7 +19,8 @@ data class MapUiState(
     val currentLocation: Location? = null,
     val boneZones: List<BoneZone> = emptyList(),
     val isLoading: Boolean = true,
-    val highlightedZoneId: String? = null
+    val highlightedZoneId: String? = null,
+    val satelliteScanResults: Map<String, Bone> = emptyMap() // [НОВОЕ] Карта для хранения результатов сканирования [ID зоны] -> [Кость]
 )
 
 @HiltViewModel
@@ -92,9 +94,6 @@ class MapViewModel @Inject constructor(
         }
     }
 
-    /**
-     * [НОВЫЙ МЕТОД] Обрабатывает нажатие на кнопку подсказки "Удаленный сбор".
-     */
     fun onRemoteCollectHintClicked() {
         viewModelScope.launch {
             val playerLocation = _uiState.value.currentLocation
@@ -139,6 +138,54 @@ class MapViewModel @Inject constructor(
         }
     }
 
+    /**
+     * [НОВЫЙ МЕТОД] Обрабатывает нажатие на кнопку подсказки "Сканирование зон".
+     */
+    fun onSatelliteScanHintClicked() {
+        viewModelScope.launch {
+            val playerLocation = _uiState.value.currentLocation
+            if (playerLocation == null) {
+                _snackbarMessage.emit("Не удалось определить вашу позицию.")
+                return@launch
+            }
+
+            val purchaseSuccess = repository.purchaseSatelliteScanHint()
+
+            if (purchaseSuccess) {
+                // Находим 5 ближайших несобранных зон
+                val nearestZones = _uiState.value.boneZones
+                    .filter { !it.isCollected }
+                    .sortedBy { zone ->
+                        distanceUtil.calculateDistance(
+                            playerLocation.latitude, playerLocation.longitude,
+                            zone.centerLat, zone.centerLng
+                        )
+                    }
+                    .take(5)
+
+                if (nearestZones.isEmpty()){
+                    _snackbarMessage.emit("Поблизости нет зон для сканирования.")
+                    // Возвращаем деньги, так как подсказка не была использована
+                    repository.purchaseSatelliteScanHint() // Это "отменит" списание, так как стоимость отрицательная
+                    return@launch
+                }
+
+                val scanResults = mutableMapOf<String, Bone>()
+                // Генерируем кость для каждой из этих зон
+                nearestZones.forEach { zone ->
+                    val newBone = BoneGenerator.generateRandomBone()
+                    scanResults[zone.id] = newBone
+                }
+
+                _uiState.update { it.copy(satelliteScanResults = scanResults) }
+                _snackbarMessage.emit("Сканирование завершено! Кости в ${nearestZones.size} ближайших зонах определены.")
+            } else {
+                _snackbarMessage.emit("Недостаточно динокоинов! Нужно 1000.")
+            }
+        }
+    }
+
+
     private fun startContinuousLocationUpdates() {
         locationService.getLocationUpdates(5000L)
             .distinctUntilChanged { old, new ->
@@ -177,12 +224,22 @@ class MapViewModel @Inject constructor(
 
         if (zoneToCollect != null) {
             viewModelScope.launch {
-                val newBone = BoneGenerator.generateRandomBone()
+                // [ИЗМЕНЕНО] Проверяем, была ли эта зона просканирована. Если да - берем кость оттуда, если нет - генерируем новую
+                val newBone = uiState.value.satelliteScanResults[zoneToCollect.id] ?: BoneGenerator.generateRandomBone()
+
                 repository.boneFound(newBone, zoneToCollect.id)
                 _snackbarMessage.emit("Найдено: ${newBone.name}!")
 
+                // Убираем подсветку, если зона была подсвечена
                 if (zoneToCollect.id == _uiState.value.highlightedZoneId) {
                     _uiState.update { it.copy(highlightedZoneId = null) }
+                }
+
+                // [НОВОЕ] Убираем зону из результатов сканирования после сбора
+                if (_uiState.value.satelliteScanResults.containsKey(zoneToCollect.id)) {
+                    val updatedScanResults = _uiState.value.satelliteScanResults.toMutableMap()
+                    updatedScanResults.remove(zoneToCollect.id)
+                    _uiState.update { it.copy(satelliteScanResults = updatedScanResults) }
                 }
 
                 processNewLocation(location)

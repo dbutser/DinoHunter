@@ -34,6 +34,7 @@ class DinoRepository @Inject constructor(
     companion object {
         private const val HINT_HIGHLIGHT_COST = 1000L // Стоимость подсказки "Подсветка"
         private const val HINT_REMOTE_COLLECT_COST = 2500L // Стоимость подсказки "Удаленный сбор"
+        private const val HINT_SATELLITE_SCAN_COST = 1000L // [НОВОЕ] Стоимость подсказки "Сканирование зон"
     }
 
     // --- ИГРОВЫЕ КОНСТАНТЫ ---
@@ -115,6 +116,25 @@ class DinoRepository @Inject constructor(
             true
         } else {
             Log.w("DinoRepository", "Недостаточно средств для покупки подсказки 'Удаленный сбор'. Требуется: $HINT_REMOTE_COLLECT_COST, в наличии: ${profile.dinocoinBalance}")
+            false
+        }
+    }
+
+    /**
+     * [НОВЫЙ МЕТОД] Пытается купить подсказку "Сканирование зон".
+     * @return true, если покупка удалась, иначе false.
+     */
+    suspend fun purchaseSatelliteScanHint(): Boolean = withContext(Dispatchers.IO) {
+        val profile = userProfileDao.getProfile().firstOrNull()
+            ?: return@withContext false
+
+        if (profile.dinocoinBalance >= HINT_SATELLITE_SCAN_COST) {
+            val newBalance = profile.dinocoinBalance - HINT_SATELLITE_SCAN_COST
+            userProfileDao.updateDinoCoinBalance(newBalance)
+            Log.d("DinoRepository", "Подсказка 'Сканирование зон' куплена за $HINT_SATELLITE_SCAN_COST. Новый баланс: $newBalance")
+            true
+        } else {
+            Log.w("DinoRepository", "Недостаточно средств для покупки подсказки 'Сканирование зон'. Требуется: $HINT_SATELLITE_SCAN_COST, в наличии: ${profile.dinocoinBalance}")
             false
         }
     }
