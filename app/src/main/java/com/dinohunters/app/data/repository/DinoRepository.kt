@@ -29,18 +29,21 @@ class DinoRepository @Inject constructor(
     private val stepCounter: StepCounter
 ) {
     // ЗАМЕНИТЕ НА ВАШ КЛЮЧ!
-    private val googleApiKey = "AIzaSyB3YgLtPfHnkaMFCL4Cj_dTMh9-KGwo81Q"
+    private val googleApiKey = "YOUR_GOOGLE_API_KEY" // TODO: Замените на ваш ключ API
 
-    // --- КОНСТАНТЫ ИГРЫ ---
+    companion object {
+        private const val HINT_HIGHLIGHT_COST = 1000L // Стоимость подсказки "Подсветка"
+        private const val HINT_REMOTE_COLLECT_COST = 2500L // Стоимость подсказки "Удаленный сбор"
+    }
+
+    // --- ИГРОВЫЕ КОНСТАНТЫ ---
     private val ZONE_RADIUS_METERS = 100.0
     private val MINIMUM_DISTANCE_BETWEEN_ZONES_METERS = 210.0
     private val PLAYER_AURA_RADIUS_METERS = 1500.0
     private val ZONES_TO_GENERATE_COUNT = 15
     private val MAX_GENERATION_ATTEMPTS = 500
 
-    // --- ПУБЛИЧНЫЕ МЕТОДЫ ДЛЯ VIEWMODEL ---
-
-    // --- ЛОГИКА ДИНОКОИНОВ ---
+    // --- ЛОГИКА ДИНОКОИНОВ И ПРОФИЛЯ ---
     suspend fun syncDinoCoins() = withContext(Dispatchers.IO) {
         Log.d("DinoRepository", "--- Запущена синхронизация динокоинов ---")
 
@@ -53,57 +56,80 @@ class DinoRepository @Inject constructor(
 
         val totalStepsFromSensor = stepCounter.getTotalSteps().firstOrNull()
         if (totalStepsFromSensor == null) {
-            Log.e("DinoRepository", "Ошибка: Не удалось получить данные с датчика шагов (вернулся null). Проверьте разрешения и наличие датчика.")
+            Log.e("DinoRepository", "Ошибка: Не удалось получить данные с датчика шагов (вернулся null).")
             return@withContext
         }
         Log.d("DinoRepository", "Данные с датчика получены. Всего шагов с перезагрузки: $totalStepsFromSensor")
 
-        // Вычисляем только НОВЫЕ шаги
         val newSteps = totalStepsFromSensor - profile.lastSyncedSteps
-        Log.d("DinoRepository", "Вычислены новые шаги: $newSteps (Сенсор: $totalStepsFromSensor - База: ${profile.lastSyncedSteps})")
+        Log.d("DinoRepository", "Вычислены новые шаги: $newSteps")
 
         if (newSteps > 0) {
             val newBalance = profile.dinocoinBalance + newSteps
-            // Обновляем и баланс, и общее количество "учтенных" шагов
             userProfileDao.updateDinoCoinsAndSteps(newBalance, totalStepsFromSensor)
-            Log.d("DinoRepository", "УСПЕХ! Начислено $newSteps динокоинов. Новый баланс: $newBalance. Новое значение шагов в базе: $totalStepsFromSensor")
+            Log.d("DinoRepository", "УСПЕХ! Начислено $newSteps динокоинов. Новый баланс: $newBalance.")
         } else {
-            Log.w("DinoRepository", "Новых шагов для начисления нет (newSteps <= 0). Обновление не требуется.")
+            Log.w("DinoRepository", "Новых шагов для начисления нет.")
         }
         Log.d("DinoRepository", "--- Синхронизация завершена ---")
     }
 
-    suspend fun spendDinoCoins(amount: Long) = withContext(Dispatchers.IO) {
-        val profile = userProfileDao.getProfile().firstOrNull() ?: return@withContext
-        if (profile.dinocoinBalance >= amount) {
-            val newBalance = profile.dinocoinBalance - amount
-            userProfileDao.updateDinoCoinBalance(newBalance)
-            Log.d("DinoRepository", "Spent $amount DinoCoins. Remaining: $newBalance")
-        } else {
-            Log.w("DinoRepository", "Not enough DinoCoins to spend. Required: $amount, Has: ${profile.dinocoinBalance}")
-        }
-    }
-
     suspend fun createInitialProfile() = withContext(Dispatchers.IO) {
-        Log.d("DinoRepository", "Профиль не найден. Создание нового профиля...")
-        userProfileDao.insertProfile(UserProfile())
-        Log.d("DinoRepository", "Новый профиль успешно создан.")
-    }
-
-    // --- ОСТАЛЬНЫЕ ПУБЛИЧНЫЕ МЕТОДЫ ---
-    fun getAllBones(): Flow<List<Bone>> = boneDao.getAllBones()
-
-    // ДОБАВИЛ ЭТУ ФУНКЦИЮ: addBone
-    // Теперь она публичная, чтобы InventoryViewModel мог ее вызывать.
-    suspend fun addBone(bone: Bone) { // <-- УДАЛИЛ "private" ЗДЕСЬ
-        boneDao.insertBone(bone)
-        updateProfileStats()
+        if (userProfileDao.getProfile().firstOrNull() == null) {
+            Log.d("DinoRepository", "Профиль не найден. Создание нового профиля...")
+            userProfileDao.insertProfile(UserProfile())
+            Log.d("DinoRepository", "Новый профиль успешно создан.")
+        }
     }
 
     fun getUserProfile(): Flow<UserProfile?> = userProfileDao.getProfile()
 
+    // --- ЛОГИКА ПОДСКАЗОК ---
+    suspend fun purchaseHighlightHint(): Boolean = withContext(Dispatchers.IO) {
+        val profile = userProfileDao.getProfile().firstOrNull()
+            ?: return@withContext false
+
+        if (profile.dinocoinBalance >= HINT_HIGHLIGHT_COST) {
+            val newBalance = profile.dinocoinBalance - HINT_HIGHLIGHT_COST
+            userProfileDao.updateDinoCoinBalance(newBalance)
+            Log.d("DinoRepository", "Подсказка 'Подсветка' куплена за $HINT_HIGHLIGHT_COST. Новый баланс: $newBalance")
+            true
+        } else {
+            Log.w("DinoRepository", "Недостаточно средств для покупки подсказки. Требуется: $HINT_HIGHLIGHT_COST, в наличии: ${profile.dinocoinBalance}")
+            false
+        }
+    }
+
+    /**
+     * [НОВЫЙ МЕТОД] Пытается купить подсказку "Удаленный сбор".
+     * @return true, если покупка удалась, иначе false.
+     */
+    suspend fun purchaseRemoteCollectHint(): Boolean = withContext(Dispatchers.IO) {
+        val profile = userProfileDao.getProfile().firstOrNull()
+            ?: return@withContext false
+
+        if (profile.dinocoinBalance >= HINT_REMOTE_COLLECT_COST) {
+            val newBalance = profile.dinocoinBalance - HINT_REMOTE_COLLECT_COST
+            userProfileDao.updateDinoCoinBalance(newBalance)
+            Log.d("DinoRepository", "Подсказка 'Удаленный сбор' куплена за $HINT_REMOTE_COLLECT_COST. Новый баланс: $newBalance")
+            true
+        } else {
+            Log.w("DinoRepository", "Недостаточно средств для покупки подсказки 'Удаленный сбор'. Требуется: $HINT_REMOTE_COLLECT_COST, в наличии: ${profile.dinocoinBalance}")
+            false
+        }
+    }
+
+
+    // --- ОСНОВНАЯ ИГРОВАЯ ЛОГИКА ---
+    fun getAllBones(): Flow<List<Bone>> = boneDao.getAllBones()
+
+    suspend fun addBone(bone: Bone) {
+        boneDao.insertBone(bone)
+        updateProfileStats()
+    }
+
     suspend fun boneFound(bone: Bone, zoneId: String) {
-        addBone(bone) // Теперь эта строка будет работать
+        addBone(bone)
         markZoneAsCollected(zoneId)
     }
 
@@ -128,28 +154,19 @@ class DinoRepository @Inject constructor(
     }
 
     suspend fun ensureZonesExist(playerLocation: Location): Boolean = withContext(Dispatchers.IO) {
-        if (getVisibleZones(playerLocation).isEmpty()) {
+        if (boneZoneDao.getAllZonesList().isEmpty()) {
             generateNewZonesAround(playerLocation)
             return@withContext true
         }
         return@withContext false
     }
 
-    suspend fun performGreatPurge() = withContext(Dispatchers.IO) {
+    suspend fun clearAllBoneData() = withContext(Dispatchers.IO) {
         boneZoneDao.deleteAllZones()
+        // TODO: Добавить метод `clearAll()` или `deleteAll()` в интерфейс `BoneDao` и раскомментировать строку ниже
+        // boneDao.clearAll()
+        Log.d("DinoRepository", "All zone data has been cleared.")
     }
-
-    // --- ПРИВАТНЫЕ МЕТОДЫ РЕПОЗИТОРИЯ (Остальные, которые должны быть приватными) ---
-    // Этот метод был частью изначального "private suspend fun addBone",
-    // но теперь BoneGenerator может вызывать публичную addBone выше.
-    // Если вам нужна функция для удаления одной кости из группы (это сложнее)
-    // suspend fun removeOneBone(boneKey: BoneKey) { ... }
-    // Удаляем избыточную приватную версию addBone, чтобы не было дублирования
-    // (поскольку публичная addBone теперь делает то же самое).
-    // Если же вам нужно, чтобы публичная addBone вызывала приватную, то
-    // приватная должна быть переименована, например, в internalAddBone(bone: Bone)
-    // и вызываться из публичной. Но в данном случае, она просто должна быть публичной.
-
 
     private suspend fun markZoneAsCollected(zoneId: String) {
         boneZoneDao.markZoneCollected(zoneId, System.currentTimeMillis())
@@ -176,7 +193,7 @@ class DinoRepository @Inject constructor(
         )
 
         userProfileDao.updateProfile(updatedProfile)
-        Log.d("DinoRepository", "Profile stats updated. Total bones: $total")
+        Log.d("DinoRepository", "Статистика профиля обновлена. Всего костей: $total")
     }
 
     private suspend fun generateNewZonesAround(centerLocation: Location) {
@@ -199,7 +216,7 @@ class DinoRepository @Inject constructor(
                 )
                 response.snappedPoints?.firstOrNull()?.location
             } catch (e: Exception) {
-                Log.e("DinoRepository", "Roads API request failed", e)
+                Log.e("DinoRepository", "Ошибка запроса к Roads API", e)
                 null
             }
 
@@ -228,7 +245,7 @@ class DinoRepository @Inject constructor(
             )
         }
 
-        Log.d("DinoRepository", "Generated ${validZonesToSave.size} new zones.")
+        Log.d("DinoRepository", "Сгенерировано ${validZonesToSave.size} новых зон.")
         if (validZonesToSave.isNotEmpty()) {
             boneZoneDao.insertAll(validZonesToSave)
         }

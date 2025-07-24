@@ -8,7 +8,6 @@ import androidx.work.Configuration
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import com.dinohunters.app.worker.DailyCleanupWorker
 import dagger.hilt.android.HiltAndroidApp
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
@@ -49,21 +48,6 @@ class DinoHunterApplication : Application(), Configuration.Provider {
         }
         val initialDelay = dueTime.timeInMillis - currentTime.timeInMillis
 
-        // Создаем периодический запрос, который будет повторяться каждые 24 часа
-        val cleanupRequest = PeriodicWorkRequestBuilder<DailyCleanupWorker>(
-            repeatInterval = 24,
-            repeatIntervalTimeUnit = TimeUnit.HOURS
-        )
-            // Устанавливаем первую задержку до полуночи
-            .setInitialDelay(initialDelay, TimeUnit.MILLISECONDS)
-            .build()
 
-        // Запускаем уникальную работу.
-        // ExistingPeriodicWorkPolicy.KEEP - если работа уже запланирована, ничего не делать.
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            DailyCleanupWorker.WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
-            cleanupRequest
-        )
     }
 }

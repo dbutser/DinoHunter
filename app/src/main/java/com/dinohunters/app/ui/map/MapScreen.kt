@@ -7,7 +7,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background // <-- Добавлен импорт для .background
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -20,7 +20,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale // <-- Добавлен импорт
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -30,6 +30,7 @@ import com.dinohunters.app.R
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
@@ -68,43 +69,29 @@ fun MapScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            // --- НАЧАЛО ИЗМЕНЕНИЙ В TOP BAR ---
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp) // Стандартная высота TopAppBar, можете изменить
-                    .background(MaterialTheme.colorScheme.primary) // Цвет фона, если изображение не покрывает всю область
+                    .height(64.dp)
+                    .background(MaterialTheme.colorScheme.primary)
             ) {
-                // ВАШ РИСУНОК
                 Image(
-                    painter = painterResource(id = R.drawable.top_bar_background), // <-- ЗАМЕНИТЕ 'top_bar_background' НА ИМЯ ВАШЕГО ФАЙЛА РИСУНКА
-                    contentDescription = "Фон верхней плашки", // Описание для доступности
-                    modifier = Modifier.fillMaxSize(), // Рисунок заполняет всю Box
-                    contentScale = ContentScale.Crop // Масштабирование: Crop (обрезает, но заполняет), Fit (помещает полностью), FillBounds (растягивает)
+                    painter = painterResource(id = R.drawable.top_bar_background),
+                    contentDescription = "Фон верхней плашки",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
-
-                // Иконка профиля справа
                 IconButton(
                     onClick = onNavigateToProfile,
-                    modifier = Modifier.align(Alignment.CenterEnd) // Выравнивание иконки справа по центру
+                    modifier = Modifier.align(Alignment.CenterEnd)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.PersonalInjury,
+                        imageVector = Icons.Default.Person,
                         contentDescription = "Профиль",
-                        tint = Color.Black // Цвет иконки. Настройте для контраста с вашим рисунком.
-                        // Можно использовать MaterialTheme.colorScheme.onPrimary, если подходит
+                        tint = Color.Black
                     )
                 }
-
-                // Дополнительно: если вы хотите добавить текст, выровненный по центру, поверх рисунка:
-                // Text(
-                //     text = "Охотник за динозаврами",
-                //     style = MaterialTheme.typography.titleLarge, // Выберите подходящий стиль типографики
-                //     color = Color.White, // Цвет текста
-                //     modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp) // Выравнивание текста
-                // )
             }
-            // --- КОНЕЦ ИЗМЕНЕНИЙ В TOP BAR ---
         },
         floatingActionButtonPosition = FabPosition.End,
         floatingActionButton = {
@@ -118,7 +105,10 @@ fun MapScreen(
                 MapContent(
                     uiState = uiState,
                     isHintMenuExpanded = isHintMenuExpanded,
-                    onHintMenuToggle = { isHintMenuExpanded = !isHintMenuExpanded }
+                    onHintMenuToggle = { isHintMenuExpanded = !isHintMenuExpanded },
+                    onHighlightHintClick = { viewModel.onHighlightHintClicked() },
+                    // [НОВЫЙ КОД] Передаем вызов для второй подсказки
+                    onRemoteCollectHintClick = { viewModel.onRemoteCollectHintClicked() }
                 )
             } else {
                 PermissionRequestContent(
@@ -136,6 +126,8 @@ private fun MapContent(
     uiState: MapUiState,
     isHintMenuExpanded: Boolean,
     onHintMenuToggle: () -> Unit,
+    onHighlightHintClick: () -> Unit,
+    onRemoteCollectHintClick: () -> Unit, // [НОВЫЙ КОД] Принимаем лямбду
     modifier: Modifier = Modifier
 ) {
     val cameraPositionState = rememberCameraPositionState {
@@ -150,10 +142,12 @@ private fun MapContent(
 
     LaunchedEffect(uiState.currentLocation) {
         uiState.currentLocation?.let {
-            cameraPositionState.animate(
-                update = CameraUpdateFactory.newLatLngZoom(LatLng(it.latitude, it.longitude), 16.5f),
-                durationMs = 1500
-            )
+            if (cameraPositionState.position.zoom < 15f) {
+                cameraPositionState.animate(
+                    update = CameraUpdateFactory.newLatLngZoom(LatLng(it.latitude, it.longitude), 16.5f),
+                    durationMs = 1500
+                )
+            }
         }
     }
 
@@ -176,6 +170,15 @@ private fun MapContent(
                     strokeWidth = 2f
                 )
             }
+
+            val highlightedZone = uiState.boneZones.find { it.id == uiState.highlightedZoneId }
+            highlightedZone?.let { zone ->
+                Marker(
+                    state = MarkerState(position = LatLng(zone.hiddenPointLat, zone.hiddenPointLng)),
+                    title = "Здесь спрятана кость!",
+                    icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW)
+                )
+            }
         }
 
         if (uiState.isLoading) {
@@ -185,6 +188,8 @@ private fun MapContent(
         ExpandingHintMenu(
             isExpanded = isHintMenuExpanded,
             onToggle = onHintMenuToggle,
+            onHighlightHintClick = onHighlightHintClick,
+            onRemoteCollectHintClick = onRemoteCollectHintClick, // [НОВЫЙ КОД] Передаем лямбду в меню
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(16.dp)
@@ -217,13 +222,35 @@ private fun PermissionRequestContent(
 }
 
 @Composable
-fun ExpandingHintMenu(isExpanded: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+fun ExpandingHintMenu(
+    isExpanded: Boolean,
+    onToggle: () -> Unit,
+    onHighlightHintClick: () -> Unit,
+    onRemoteCollectHintClick: () -> Unit, // [НОВЫЙ КОД] Принимаем лямбду
+    modifier: Modifier = Modifier
+) {
     Column(modifier = modifier, horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         AnimatedVisibility(visible = isExpanded) {
             Column(horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                MenuItem(icon = painterResource(id = R.drawable.ic_hint_highlight), text = "Подсветить кость в зоне", visible = isExpanded)
-                MenuItem(icon = painterResource(id = R.drawable.ic_hint_collect), text = "Забрать кость из зоны", visible = isExpanded)
-                MenuItem(icon = painterResource(id = R.drawable.ic_hint_scan), text = "Спутниковое сканирование", visible = isExpanded)
+                MenuItem(
+                    icon = painterResource(id = R.drawable.ic_hint_highlight),
+                    text = "Подсветить кость (1000)",
+                    visible = isExpanded,
+                    onClick = onHighlightHintClick
+                )
+                // --- [ИЗМЕНЕНИЕ] Подключаем новую функцию и меняем текст ---
+                MenuItem(
+                    icon = painterResource(id = R.drawable.ic_hint_collect),
+                    text = "Удаленный сбор (2500)",
+                    visible = isExpanded,
+                    onClick = onRemoteCollectHintClick
+                )
+                MenuItem(
+                    icon = painterResource(id = R.drawable.ic_hint_scan),
+                    text = "Спутниковое сканирование",
+                    visible = isExpanded,
+                    onClick = { /* TODO: Логика для третьей подсказки */ }
+                )
             }
         }
         VectorIconFab(imageVector = Icons.Default.Add, isExpanded = isExpanded, onClick = onToggle)
@@ -231,10 +258,15 @@ fun ExpandingHintMenu(isExpanded: Boolean, onToggle: () -> Unit, modifier: Modif
 }
 
 @Composable
-private fun MenuItem(icon: Painter, text: String, visible: Boolean) {
+private fun MenuItem(
+    icon: Painter,
+    text: String,
+    visible: Boolean,
+    onClick: () -> Unit
+) {
     AnimatedVisibility(visible = visible, enter = fadeIn() + slideInHorizontally(), exit = fadeOut() + slideOutHorizontally()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            CustomIconFab(icon = icon, onClick = { /* TODO: Действие */ })
+            CustomIconFab(icon = icon, onClick = onClick)
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), tonalElevation = 4.dp) {
                 Text(text = text, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
             }
